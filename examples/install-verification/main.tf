@@ -6,6 +6,13 @@ terraform {
   }
 }
 
-provider "googleads" {}
+variable "customer_id" {
+  type = string
+}
 
-# data "googleads_coffees" "example" {}
+
+provider "googleads" {
+  customer_id = var.customer_id
+}
+
+data "googleads_coffees" "example" {}
