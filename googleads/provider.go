@@ -4,6 +4,9 @@ import (
 	"context"
 	"os"
 
+	"terraform-provider-googleads/googleads/client"
+	"terraform-provider-googleads/googleads/resources"
+
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/provider"
 	"github.com/hashicorp/terraform-plugin-framework/provider/schema"
@@ -27,9 +30,10 @@ type googleadsProvider struct{}
 
 // googleadsProviderModel maps provider schema data to a Go type.
 type googleadsProviderModel struct {
-	DeveloperToken types.String `tfsdk:"developer_token"`
-	AccessToken    types.String `tfsdk:"access_token"`
-	CustomerId     types.String `tfsdk:"customer_id"`
+	DeveloperToken  types.String `tfsdk:"developer_token"`
+	AccessToken     types.String `tfsdk:"access_token"`
+	CustomerId      types.String `tfsdk:"customer_id"`
+	LoginCustomerId types.String `tfsdk:"login_customer_id"`
 }
 
 // Metadata returns the provider type name.
@@ -52,6 +56,9 @@ func (p *googleadsProvider) Schema(_ context.Context, _ provider.SchemaRequest, 
 			"customer_id": schema.StringAttribute{
 				Required: true,
 			},
+			"login_customer_id": schema.StringAttribute{
+				Optional: true,
+			},
 		},
 	}
 }
@@ -73,6 +80,7 @@ func (p *googleadsProvider) Configure(ctx context.Context, req provider.Configur
 	dev_token := os.Getenv("GOOGLEADS_DEVELOPER_TOKEN")
 	access_token := os.Getenv("GOOGLEADS_ACCESS_TOKEN")
 	customer_id := os.Getenv("GOOGLEADS_CUSTOMER_ID")
+	login_customer_id := os.Getenv("GOOGLEADS_LOGIN_CUSTOMER_ID")
 
 	if !config.DeveloperToken.IsNull() {
 		dev_token = config.DeveloperToken.ValueString()
@@ -86,18 +94,23 @@ func (p *googleadsProvider) Configure(ctx context.Context, req provider.Configur
 		customer_id = config.CustomerId.ValueString()
 	}
 
+	if !config.LoginCustomerId.IsNull() {
+		login_customer_id = config.LoginCustomerId.ValueString()
+	}
+
 	ctx = tflog.SetField(ctx, "googleads_dev_token", dev_token)
-	ctx = tflog.MaskFieldValuesWithFieldKeys(ctx, "googleads_dev_token")
+	// ctx = tflog.MaskFieldValuesWithFieldKeys(ctx, "googleads_dev_token")
 	ctx = tflog.SetField(ctx, "googleads_access_token", access_token)
-	ctx = tflog.MaskFieldValuesWithFieldKeys(ctx, "googleads_access_token")
+	// ctx = tflog.MaskFieldValuesWithFieldKeys(ctx, "googleads_access_token")
 	ctx = tflog.SetField(ctx, "googleads_customer_id", customer_id)
+	ctx = tflog.SetField(ctx, "googleads_login_customer_id", login_customer_id)
 
 	tflog.Debug(ctx, "Creating Google Ads API client")
 
 	// TODO: Error handling for missing configuration values
 
 	// Create client
-	client, err := NewGoogleAdsClient(dev_token, access_token, customer_id)
+	client, err := client.NewGoogleAdsClient(dev_token, access_token, customer_id, login_customer_id, ctx)
 
 	if err != nil {
 		resp.Diagnostics.AddError(
@@ -126,5 +139,7 @@ func (p *googleadsProvider) DataSources(_ context.Context) []func() datasource.D
 
 // Resources defines the resources implemented in the provider.
 func (p *googleadsProvider) Resources(_ context.Context) []func() resource.Resource {
-	return nil
+	return []func() resource.Resource{
+		resources.NewImageAssetResource,
+	}
 }

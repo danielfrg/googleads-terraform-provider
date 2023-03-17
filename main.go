@@ -11,4 +11,6 @@ func main() {
 	providerserver.Serve(context.Background(), googleads.New, providerserver.ServeOpts{
 		Address: "github.com/danielfrg/googleads-tf-provider",
 	})
+
+	// getImageFromFilePath("examples/image_asset.image.png")
 }
