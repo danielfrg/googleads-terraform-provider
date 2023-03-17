@@ -3,10 +3,10 @@ package resources
 import (
 	"bufio"
 	"context"
+	"crypto/sha256"
 	"fmt"
 	"net/http"
 	"os"
-	"time"
 
 	"terraform-provider-googleads/googleads/client"
 
@@ -41,7 +41,7 @@ type imageAssetResourceModel struct {
 	Name         types.String `tfsdk:"name"`
 	Path         types.String `tfsdk:"path"`
 	ResourceName types.String `tfsdk:"resource_name"`
-	LastUpdated  types.String `tfsdk:"last_updated"`
+	Hash         types.String `tfsdk:"hash"`
 }
 
 // Metadata returns the resource type name.
@@ -62,7 +62,7 @@ func (r *imageAssetResource) Schema(_ context.Context, _ resource.SchemaRequest,
 			"name": schema.StringAttribute{
 				Required: true,
 			},
-			"last_updated": schema.StringAttribute{
+			"hash": schema.StringAttribute{
 				Computed: true,
 			},
 		},
@@ -90,21 +90,19 @@ func (r *imageAssetResource) Create(ctx context.Context, req resource.CreateRequ
 	}
 
 	filePath := plan.Path.ValueString()
-	tflog.Info(ctx, "Reading Image", map[string]any{"path": filePath})
 
 	image, err := getImageFromFilePath(filePath)
 	// TODO: Handle path doesn't exist
 	if err != nil {
 		// TODO: handle error
 	}
-	tflog.Info(ctx, "Image", map[string]any{"image": image})
 
 	// Generate API request from plan
 	assetService := services.NewAssetServiceClient(&r.client.Connection)
 
 	url := "https://gaagl.page.link/Eit5"
 
-	assetName := plan.Path.ValueString()
+	assetName := plan.Name.ValueString()
 	assetOperation := &services.AssetOperation{
 		Operation: &services.AssetOperation_Create{Create: &resources.Asset{
 			Name: &assetName,
@@ -142,7 +140,7 @@ func (r *imageAssetResource) Create(ctx context.Context, req resource.CreateRequ
 	tflog.Info(ctx, "Created Image Asset", map[string]any{"resource_name": resource_name})
 
 	plan.ResourceName = types.StringValue(resource_name)
-	plan.LastUpdated = types.StringValue(time.Now().Format(time.RFC850))
+	plan.Hash = types.StringValue(image.Hash)
 
 	// Set state to fully populated data
 	diags = resp.State.Set(ctx, plan)
@@ -166,6 +164,7 @@ func (r *imageAssetResource) Delete(ctx context.Context, req resource.DeleteRequ
 
 type ImageInfo struct {
 	Data   *[]byte
+	Hash   string
 	Type   string
 	Size   int64
 	Width  int64
@@ -179,9 +178,17 @@ func getImageFromFilePath(filePath string) (ImageInfo, error) {
 	}
 	defer file.Close()
 
+	// if _, err := io.Copy(h, file); err != nil {
+	// 	return ImageInfo{}, err
+	// }
+
 	fileInfo, _ := file.Stat()
 	var size int64 = fileInfo.Size()
 	bytes := make([]byte, size)
+
+	h := sha256.New()
+	h.Write(bytes)
+	hash := fmt.Sprintf("%x", h.Sum(nil))
 
 	// read file into bytes
 	buffer := bufio.NewReader(file)
@@ -191,6 +198,7 @@ func getImageFromFilePath(filePath string) (ImageInfo, error) {
 
 	image := ImageInfo{
 		Data:   &bytes,
+		Hash:   hash,
 		Type:   filetype,
 		Size:   size,
 		Height: 315,
