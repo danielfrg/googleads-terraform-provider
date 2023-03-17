@@ -12,6 +12,8 @@ import (
 
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/hashicorp/terraform-plugin-log/tflog"
 	"github.com/shenzhencenter/google-ads-pb/common"
@@ -53,14 +55,17 @@ func (r *imageAssetResource) Metadata(_ context.Context, req resource.MetadataRe
 func (r *imageAssetResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
 	resp.Schema = schema.Schema{
 		Attributes: map[string]schema.Attribute{
-			"resource_name": schema.StringAttribute{
-				Computed: true,
-			},
 			"path": schema.StringAttribute{
 				Required: true,
+				PlanModifiers: []planmodifier.String{
+					stringplanmodifier.RequiresReplace(),
+				},
 			},
 			"name": schema.StringAttribute{
 				Required: true,
+			},
+			"resource_name": schema.StringAttribute{
+				Computed: true,
 			},
 			"hash": schema.StringAttribute{
 				Computed: true,
@@ -79,7 +84,7 @@ func (r *imageAssetResource) Configure(_ context.Context, req resource.Configure
 
 // Create creates the resource and sets the initial Terraform state.
 func (r *imageAssetResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
-	tflog.Info(ctx, "Creating Image Asset")
+	tflog.Info(ctx, "ImageAsset: Create")
 
 	// Retrieve values from plan
 	var plan imageAssetResourceModel
@@ -150,12 +155,59 @@ func (r *imageAssetResource) Create(ctx context.Context, req resource.CreateRequ
 	}
 }
 
+const GAQL_GetAssetsByRN = `SELECT asset.image_asset.file_size, asset.image_asset.full_size.height_pixels, asset.image_asset.full_size.url, asset.image_asset.full_size.width_pixels, asset.image_asset.mime_type, asset.name FROM asset WHERE asset.resource_name = '%s'`
+
 // Read refreshes the Terraform state with the latest data.
 func (r *imageAssetResource) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {
+	tflog.Info(ctx, "ImageAsset: Read")
+
+	// Get current state
+	var state imageAssetResourceModel
+	diags := req.State.Get(ctx, &state)
+	resp.Diagnostics.Append(diags...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	tflog.Info(ctx, "ImageAsset: Read", map[string]any{"resource_name": state.ResourceName.ValueString()})
+
+	// Get refreshed order value from the API
+	request := services.SearchGoogleAdsRequest{
+		CustomerId: r.client.CustomerId,
+		Query:      fmt.Sprintf(GAQL_GetAssetsByRN, state.ResourceName.ValueString()),
+	}
+	response, err := services.NewGoogleAdsServiceClient(&r.client.Connection).Search(r.client.Context, &request)
+	if err != nil {
+		panic(err)
+	}
+
+	// Overwrite values with refreshed state
+	if len(response.Results) == 0 {
+		// Treat empty response as resource not found
+		resp.State.RemoveResource(ctx)
+		return
+	}
+	if len(response.Results) > 1 {
+		// TODO: Handle multiple results
+		panic("Multiple results returned for resource name: " + state.ResourceName.ValueString())
+	}
+	for _, resource := range response.Results {
+		state.ResourceName = types.StringValue(resource.Asset.GetResourceName())
+		state.Name = types.StringValue(resource.Asset.GetName())
+		break
+	}
+
+	// Set refreshed state
+	diags = resp.State.Set(ctx, &state)
+	resp.Diagnostics.Append(diags...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
 }
 
 // Update updates the resource and sets the updated Terraform state on success.
 func (r *imageAssetResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
+	tflog.Info(ctx, "ImageAsset: Update")
 }
 
 // Delete deletes the resource and removes the Terraform state on success.
@@ -177,10 +229,6 @@ func getImageFromFilePath(filePath string) (ImageInfo, error) {
 		return ImageInfo{}, err
 	}
 	defer file.Close()
-
-	// if _, err := io.Copy(h, file); err != nil {
-	// 	return ImageInfo{}, err
-	// }
 
 	fileInfo, _ := file.Stat()
 	var size int64 = fileInfo.Size()
