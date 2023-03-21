@@ -14,6 +14,7 @@ import (
 	"github.com/shenzhencenter/google-ads-pb/enums"
 	"github.com/shenzhencenter/google-ads-pb/resources"
 	"github.com/shenzhencenter/google-ads-pb/services"
+	"google.golang.org/genproto/protobuf/field_mask"
 )
 
 // Ensure the implementation satisfies the expected interfaces.
@@ -83,7 +84,6 @@ func (r *textAssetResource) Create(ctx context.Context, req resource.CreateReque
 
 	assetOperation := &services.AssetOperation{
 		Operation: &services.AssetOperation_Create{Create: &resources.Asset{
-			// Name:      &assetName,
 			Type: enums.AssetTypeEnum_TEXT,
 			AssetData: &resources.Asset_TextAsset{TextAsset: &common.TextAsset{
 				Text: &text,
@@ -107,7 +107,7 @@ func (r *textAssetResource) Create(ctx context.Context, req resource.CreateReque
 
 	// Map response body to schema and populate Computed attribute values
 	resource_name := response.Results[0].ResourceName
-	tflog.Info(ctx, "Created Image Asset", map[string]any{"resource_name": resource_name})
+	tflog.Info(ctx, "Created Text Asset", map[string]any{"resource_name": resource_name})
 
 	plan.ResourceName = types.StringValue(resource_name)
 
@@ -175,8 +175,55 @@ func (r *textAssetResource) Read(ctx context.Context, req resource.ReadRequest, 
 // Update updates the resource and sets the updated Terraform state on success.
 func (r *textAssetResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
 	tflog.Info(ctx, "TextAsset: Update")
+	// Retrieve values from plan
+	var plan textAssetResourceModel
+	diags := req.Plan.Get(ctx, &plan)
+	resp.Diagnostics.Append(diags...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	text := plan.Text.ValueString()
+
+	// Generate API request from plan
+	assetService := services.NewAssetServiceClient(&r.client.Connection)
+
+	updateOp := &services.AssetOperation{
+		Operation: &services.AssetOperation_Update{Update: &resources.Asset{
+			ResourceName: plan.ResourceName.ValueString(),
+			Type:         enums.AssetTypeEnum_TEXT,
+			AssetData: &resources.Asset_TextAsset{TextAsset: &common.TextAsset{
+				Text: &text,
+			}}},
+		},
+		UpdateMask: &field_mask.FieldMask{Paths: []string{"text_asset.text"}},
+	}
+
+	mutateRequest := &services.MutateAssetsRequest{
+		CustomerId: r.client.CustomerId,
+		Operations: []*services.AssetOperation{updateOp},
+	}
+
+	response, err := assetService.MutateAssets(r.client.Context, mutateRequest)
+
+	if err != nil {
+		resp.Diagnostics.AddError(
+			"Error creating Text Asset",
+			ParseClientError(err))
+		return
+	}
+
+	// Update resource state with updated items and timestamp
+	plan.Text = types.StringValue(response.Results[0].GetAsset().GetTextAsset().GetText())
+
+	diags = resp.State.Set(ctx, plan)
+	resp.Diagnostics.Append(diags...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
 }
 
 // Delete deletes the resource and removes the Terraform state on success.
 func (r *textAssetResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
+	tflog.Info(ctx, "TextAsset: Delete")
 }
