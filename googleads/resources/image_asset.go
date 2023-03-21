@@ -41,8 +41,8 @@ type imageAssetResourceModel struct {
 	ResourceName types.String `tfsdk:"resource_name"`
 	Name         types.String `tfsdk:"name"`
 	Path         types.String `tfsdk:"path"`
-	// Url          types.String `tfsdk:"url"`
-	Hash types.String `tfsdk:"hash"`
+	Url          types.String `tfsdk:"url"`
+	Hash         types.String `tfsdk:"hash"`
 }
 
 // Metadata returns the resource type name.
@@ -66,9 +66,9 @@ func (r *imageAssetResource) Schema(_ context.Context, _ resource.SchemaRequest,
 			"name": schema.StringAttribute{
 				Required: true,
 			},
-			// "url": schema.StringAttribute{
-			// 	Optional: true,
-			// },
+			"url": schema.StringAttribute{
+				Optional: true,
+			},
 			"hash": schema.StringAttribute{
 				Computed: true,
 			},
@@ -100,9 +100,12 @@ func (r *imageAssetResource) Create(ctx context.Context, req resource.CreateRequ
 	// url := plan.Url.ValueString()
 
 	image, err := GetImageFromFilePath(filePath)
-	// TODO: Handle path doesn't exist
+
 	if err != nil {
-		// TODO: handle error
+		resp.Diagnostics.AddError(
+			"Error reading image",
+			err.Error())
+		return
 	}
 
 	// Generate API request from plan

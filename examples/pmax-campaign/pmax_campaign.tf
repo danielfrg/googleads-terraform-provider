@@ -26,7 +26,7 @@
 # }
 
 resource "googleads_text_asset" "headline1" {
-  text = "Headline 1 123"
+  text = "Headline 1"
 }
 
 # resource "googleads_text_asset" "headline2" {

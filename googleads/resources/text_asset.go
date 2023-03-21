@@ -8,13 +8,14 @@ import (
 
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/hashicorp/terraform-plugin-log/tflog"
 	"github.com/shenzhencenter/google-ads-pb/common"
 	"github.com/shenzhencenter/google-ads-pb/enums"
 	"github.com/shenzhencenter/google-ads-pb/resources"
 	"github.com/shenzhencenter/google-ads-pb/services"
-	"google.golang.org/genproto/protobuf/field_mask"
 )
 
 // Ensure the implementation satisfies the expected interfaces.
@@ -52,6 +53,9 @@ func (r *textAssetResource) Schema(_ context.Context, _ resource.SchemaRequest, 
 			},
 			"text": schema.StringAttribute{
 				Required: true,
+				PlanModifiers: []planmodifier.String{
+					stringplanmodifier.RequiresReplace(),
+				},
 			},
 		},
 	}
@@ -174,56 +178,16 @@ func (r *textAssetResource) Read(ctx context.Context, req resource.ReadRequest, 
 
 // Update updates the resource and sets the updated Terraform state on success.
 func (r *textAssetResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
-	tflog.Info(ctx, "TextAsset: Update")
-	// Retrieve values from plan
-	var plan textAssetResourceModel
-	diags := req.Plan.Get(ctx, &plan)
-	resp.Diagnostics.Append(diags...)
-	if resp.Diagnostics.HasError() {
-		return
-	}
+	tflog.Info(ctx, "TextAsset: Delete")
+	tflog.Info(ctx, "Assets are immutable and all fields force a new resource")
 
-	text := plan.Text.ValueString()
-
-	// Generate API request from plan
-	assetService := services.NewAssetServiceClient(&r.client.Connection)
-
-	updateOp := &services.AssetOperation{
-		Operation: &services.AssetOperation_Update{Update: &resources.Asset{
-			ResourceName: plan.ResourceName.ValueString(),
-			Type:         enums.AssetTypeEnum_TEXT,
-			AssetData: &resources.Asset_TextAsset{TextAsset: &common.TextAsset{
-				Text: &text,
-			}}},
-		},
-		UpdateMask: &field_mask.FieldMask{Paths: []string{"text_asset.text"}},
-	}
-
-	mutateRequest := &services.MutateAssetsRequest{
-		CustomerId: r.client.CustomerId,
-		Operations: []*services.AssetOperation{updateOp},
-	}
-
-	response, err := assetService.MutateAssets(r.client.Context, mutateRequest)
-
-	if err != nil {
-		resp.Diagnostics.AddError(
-			"Error creating Text Asset",
-			ParseClientError(err))
-		return
-	}
-
-	// Update resource state with updated items and timestamp
-	plan.Text = types.StringValue(response.Results[0].GetAsset().GetTextAsset().GetText())
-
-	diags = resp.State.Set(ctx, plan)
-	resp.Diagnostics.Append(diags...)
-	if resp.Diagnostics.HasError() {
-		return
-	}
+	resp.Diagnostics.AddError(
+		"Google Ads Assets are immutable",
+		"Any fields change should force a new resource. This is an error in the provider.")
 }
 
 // Delete deletes the resource and removes the Terraform state on success.
 func (r *textAssetResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
 	tflog.Info(ctx, "TextAsset: Delete")
+	tflog.Info(ctx, "Assets are immutable, acting as if delete was successful")
 }
