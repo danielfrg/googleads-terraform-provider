@@ -10,7 +10,6 @@ variable "customer_id" {
   type = string
 }
 
-
 provider "googleads" {
   customer_id = var.customer_id
 }

@@ -65,6 +65,9 @@ func (r *imageAssetResource) Schema(_ context.Context, _ resource.SchemaRequest,
 			},
 			"name": schema.StringAttribute{
 				Required: true,
+				PlanModifiers: []planmodifier.String{
+					stringplanmodifier.RequiresReplace(),
+				},
 			},
 			"url": schema.StringAttribute{
 				Optional: true,
@@ -216,10 +219,17 @@ func (r *imageAssetResource) Read(ctx context.Context, req resource.ReadRequest,
 // Update updates the resource and sets the updated Terraform state on success.
 func (r *imageAssetResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
 	tflog.Info(ctx, "ImageAsset: Update")
+	tflog.Info(ctx, "Assets are immutable and all fields force a new resource")
+
+	resp.Diagnostics.AddError(
+		"Google Ads Assets are immutable",
+		"Any fields change should force a new resource. This is an error in the provider.")
 }
 
 // Delete deletes the resource and removes the Terraform state on success.
 func (r *imageAssetResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
+	tflog.Info(ctx, "ImageAsset: Delete")
+	tflog.Info(ctx, "Assets are immutable, acting as if delete was successful")
 }
 
 type ImageInfo struct {

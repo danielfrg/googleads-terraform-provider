@@ -178,7 +178,7 @@ func (r *textAssetResource) Read(ctx context.Context, req resource.ReadRequest, 
 
 // Update updates the resource and sets the updated Terraform state on success.
 func (r *textAssetResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
-	tflog.Info(ctx, "TextAsset: Delete")
+	tflog.Info(ctx, "TextAsset: Update")
 	tflog.Info(ctx, "Assets are immutable and all fields force a new resource")
 
 	resp.Diagnostics.AddError(
