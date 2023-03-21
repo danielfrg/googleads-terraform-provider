@@ -110,14 +110,12 @@ func (p *googleadsProvider) Configure(ctx context.Context, req provider.Configur
 	// TODO: Error handling for missing configuration values
 
 	// Create client
-	client, err := client.NewGoogleAdsClient(dev_token, access_token, customer_id, login_customer_id, ctx)
+	client, err := client.NewGoogleAdsClient(dev_token, access_token, customer_id, login_customer_id)
 
 	if err != nil {
 		resp.Diagnostics.AddError(
 			"Unable to Create Google Ads API Client",
-			"An unexpected error occurred when creating the Google Ads API client. "+
-				"If the error is not clear, please contact the provider developers.\n\n"+
-				"Client Error: "+err.Error(),
+			"An unexpected error occurred when creating the Google Ads API client:\n"+err.Error(),
 		)
 		return
 	}
@@ -141,5 +139,6 @@ func (p *googleadsProvider) DataSources(_ context.Context) []func() datasource.D
 func (p *googleadsProvider) Resources(_ context.Context) []func() resource.Resource {
 	return []func() resource.Resource{
 		resources.NewImageAssetResource,
+		resources.NewTextAssetResource,
 	}
 }

@@ -28,7 +28,7 @@ type (
 
 // var ctx *context.Context
 
-func NewGoogleAdsClient(dev_token, access_token, customer_id, login_customer_id string, ctxParent context.Context) (*GoogleAdsClient, error) {
+func NewGoogleAdsClient(dev_token, access_token, customer_id, login_customer_id string) (*GoogleAdsClient, error) {
 	ctx := context.Background()
 
 	headers := metadata.Pairs(

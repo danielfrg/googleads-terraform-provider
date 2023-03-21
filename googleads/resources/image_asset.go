@@ -1,7 +1,6 @@
 package resources
 
 import (
-	"bufio"
 	"context"
 	"crypto/sha256"
 	"fmt"
@@ -40,10 +39,11 @@ type imageAssetResource struct {
 }
 
 type imageAssetResourceModel struct {
+	ResourceName types.String `tfsdk:"resource_name"`
 	Name         types.String `tfsdk:"name"`
 	Path         types.String `tfsdk:"path"`
-	ResourceName types.String `tfsdk:"resource_name"`
-	Hash         types.String `tfsdk:"hash"`
+	// Url          types.String `tfsdk:"url"`
+	Hash types.String `tfsdk:"hash"`
 }
 
 // Metadata returns the resource type name.
@@ -55,6 +55,9 @@ func (r *imageAssetResource) Metadata(_ context.Context, req resource.MetadataRe
 func (r *imageAssetResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
 	resp.Schema = schema.Schema{
 		Attributes: map[string]schema.Attribute{
+			"resource_name": schema.StringAttribute{
+				Computed: true,
+			},
 			"path": schema.StringAttribute{
 				Required: true,
 				PlanModifiers: []planmodifier.String{
@@ -64,9 +67,9 @@ func (r *imageAssetResource) Schema(_ context.Context, _ resource.SchemaRequest,
 			"name": schema.StringAttribute{
 				Required: true,
 			},
-			"resource_name": schema.StringAttribute{
-				Computed: true,
-			},
+			// "url": schema.StringAttribute{
+			// 	Optional: true,
+			// },
 			"hash": schema.StringAttribute{
 				Computed: true,
 			},
@@ -95,8 +98,9 @@ func (r *imageAssetResource) Create(ctx context.Context, req resource.CreateRequ
 	}
 
 	filePath := plan.Path.ValueString()
+	// url := plan.Url.ValueString()
 
-	image, err := getImageFromFilePath(filePath)
+	image, err := GetImageFromFilePath(filePath)
 	// TODO: Handle path doesn't exist
 	if err != nil {
 		// TODO: handle error
@@ -105,9 +109,9 @@ func (r *imageAssetResource) Create(ctx context.Context, req resource.CreateRequ
 	// Generate API request from plan
 	assetService := services.NewAssetServiceClient(&r.client.Connection)
 
-	url := "https://gaagl.page.link/Eit5"
-
 	assetName := plan.Name.ValueString()
+	mimeType := enums.MimeTypeEnum_IMAGE_JPEG
+
 	assetOperation := &services.AssetOperation{
 		Operation: &services.AssetOperation_Create{Create: &resources.Asset{
 			Name: &assetName,
@@ -115,11 +119,11 @@ func (r *imageAssetResource) Create(ctx context.Context, req resource.CreateRequ
 			AssetData: &resources.Asset_ImageAsset{ImageAsset: &common.ImageAsset{
 				Data:     *image.Data,
 				FileSize: &image.Size,
-				MimeType: enums.MimeTypeEnum_IMAGE_JPEG,
+				MimeType: mimeType,
 				FullSize: &common.ImageDimension{
 					WidthPixels:  &image.Width,
 					HeightPixels: &image.Height,
-					Url:          &url,
+					// Url:          &url,
 				},
 			}}},
 		},
@@ -134,10 +138,15 @@ func (r *imageAssetResource) Create(ctx context.Context, req resource.CreateRequ
 
 	if err != nil {
 		if e, ok := status.FromError(err); ok {
-			tflog.Info(ctx, fmt.Sprintf("%s %s %s %s", e.Code(), e.Message(), e.Details(), e.Err()))
+			resp.Diagnostics.AddError(
+				"Error creating Image Asset",
+				fmt.Sprintf("%s %s %s %s", e.Code(), e.Message(), e.Details(), e.Err()))
 		} else {
-			fmt.Printf("not able to parse error returned %v", err)
+			resp.Diagnostics.AddError(
+				"Error creating Image Asset",
+				fmt.Sprintf("not able to parse error returned %v", err))
 		}
+		return
 	}
 
 	// Map response body to schema and populate Computed attribute values
@@ -155,7 +164,7 @@ func (r *imageAssetResource) Create(ctx context.Context, req resource.CreateRequ
 	}
 }
 
-const GAQL_GetAssetsByRN = `SELECT asset.image_asset.file_size, asset.image_asset.full_size.height_pixels, asset.image_asset.full_size.url, asset.image_asset.full_size.width_pixels, asset.image_asset.mime_type, asset.name FROM asset WHERE asset.resource_name = '%s'`
+const GAQL_GetImageAssetsByRN = `SELECT asset.resource_name, asset.image_asset.file_size, asset.image_asset.full_size.height_pixels, asset.image_asset.full_size.url, asset.image_asset.full_size.width_pixels, asset.image_asset.mime_type, asset.name FROM asset WHERE asset.resource_name = '%s'`
 
 // Read refreshes the Terraform state with the latest data.
 func (r *imageAssetResource) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {
@@ -174,7 +183,7 @@ func (r *imageAssetResource) Read(ctx context.Context, req resource.ReadRequest,
 	// Get refreshed order value from the API
 	request := services.SearchGoogleAdsRequest{
 		CustomerId: r.client.CustomerId,
-		Query:      fmt.Sprintf(GAQL_GetAssetsByRN, state.ResourceName.ValueString()),
+		Query:      fmt.Sprintf(GAQL_GetImageAssetsByRN, state.ResourceName.ValueString()),
 	}
 	response, err := services.NewGoogleAdsServiceClient(&r.client.Connection).Search(r.client.Context, &request)
 	if err != nil {
@@ -194,7 +203,7 @@ func (r *imageAssetResource) Read(ctx context.Context, req resource.ReadRequest,
 	for _, resource := range response.Results {
 		state.ResourceName = types.StringValue(resource.Asset.GetResourceName())
 		state.Name = types.StringValue(resource.Asset.GetName())
-		break
+		// state.Url = types.StringValue(*resource.Asset.GetImageAsset().FullSize.Url)
 	}
 
 	// Set refreshed state
@@ -215,15 +224,15 @@ func (r *imageAssetResource) Delete(ctx context.Context, req resource.DeleteRequ
 }
 
 type ImageInfo struct {
-	Data   *[]byte
-	Hash   string
-	Type   string
-	Size   int64
-	Width  int64
-	Height int64
+	Data     *[]byte
+	Hash     string
+	Size     int64
+	Height   int64
+	Width    int64
+	MimeType string
 }
 
-func getImageFromFilePath(filePath string) (ImageInfo, error) {
+func GetImageFromFilePath(filePath string) (ImageInfo, error) {
 	file, err := os.Open(filePath)
 	if err != nil {
 		return ImageInfo{}, err
@@ -232,25 +241,27 @@ func getImageFromFilePath(filePath string) (ImageInfo, error) {
 
 	fileInfo, _ := file.Stat()
 	var size int64 = fileInfo.Size()
-	bytes := make([]byte, size)
+
+	buffer := make([]byte, size)
+	i, err := file.Read(buffer)
+	_ = i
+	if err != nil {
+		return ImageInfo{}, err
+	}
 
 	h := sha256.New()
-	h.Write(bytes)
+	h.Write(buffer)
 	hash := fmt.Sprintf("%x", h.Sum(nil))
 
-	// read file into bytes
-	buffer := bufio.NewReader(file)
-	_, err = buffer.Read(bytes)
-
-	filetype := http.DetectContentType(bytes)
+	mimeType := http.DetectContentType(buffer)
 
 	image := ImageInfo{
-		Data:   &bytes,
-		Hash:   hash,
-		Type:   filetype,
-		Size:   size,
-		Height: 315,
-		Width:  600,
+		Data:     &buffer,
+		Hash:     hash,
+		MimeType: mimeType,
+		Size:     size,
+		Height:   315,
+		Width:    600,
 	}
 
 	return image, err
