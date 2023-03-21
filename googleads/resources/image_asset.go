@@ -19,7 +19,6 @@ import (
 	"github.com/shenzhencenter/google-ads-pb/enums"
 	"github.com/shenzhencenter/google-ads-pb/resources"
 	"github.com/shenzhencenter/google-ads-pb/services"
-	"google.golang.org/grpc/status"
 )
 
 // Ensure the implementation satisfies the expected interfaces.
@@ -137,15 +136,9 @@ func (r *imageAssetResource) Create(ctx context.Context, req resource.CreateRequ
 	response, err := assetService.MutateAssets(r.client.Context, mutateRequest)
 
 	if err != nil {
-		if e, ok := status.FromError(err); ok {
-			resp.Diagnostics.AddError(
-				"Error creating Image Asset",
-				fmt.Sprintf("%s %s %s %s", e.Code(), e.Message(), e.Details(), e.Err()))
-		} else {
-			resp.Diagnostics.AddError(
-				"Error creating Image Asset",
-				fmt.Sprintf("not able to parse error returned %v", err))
-		}
+		resp.Diagnostics.AddError(
+			"Error creating Image Asset",
+			ParseClientError(err))
 		return
 	}
 
@@ -187,7 +180,10 @@ func (r *imageAssetResource) Read(ctx context.Context, req resource.ReadRequest,
 	}
 	response, err := services.NewGoogleAdsServiceClient(&r.client.Connection).Search(r.client.Context, &request)
 	if err != nil {
-		panic(err)
+		resp.Diagnostics.AddError(
+			"Error reading Image Asset",
+			ParseClientError(err))
+		return
 	}
 
 	// Overwrite values with refreshed state

@@ -14,7 +14,6 @@ import (
 	"github.com/shenzhencenter/google-ads-pb/enums"
 	"github.com/shenzhencenter/google-ads-pb/resources"
 	"github.com/shenzhencenter/google-ads-pb/services"
-	"google.golang.org/grpc/status"
 )
 
 // Ensure the implementation satisfies the expected interfaces.
@@ -100,12 +99,10 @@ func (r *textAssetResource) Create(ctx context.Context, req resource.CreateReque
 	response, err := assetService.MutateAssets(r.client.Context, mutateRequest)
 
 	if err != nil {
-		if e, ok := status.FromError(err); ok {
-			tflog.Info(ctx, fmt.Sprintf("%s %s %s %s", e.Code(), e.Message(), e.Details(), e.Err()))
-
-		} else {
-			fmt.Printf("not able to parse error returned %v", err)
-		}
+		resp.Diagnostics.AddError(
+			"Error creating Text Asset",
+			ParseClientError(err))
+		return
 	}
 
 	// Map response body to schema and populate Computed attribute values
@@ -145,7 +142,10 @@ func (r *textAssetResource) Read(ctx context.Context, req resource.ReadRequest, 
 	}
 	response, err := services.NewGoogleAdsServiceClient(&r.client.Connection).Search(r.client.Context, &request)
 	if err != nil {
-		panic(err)
+		resp.Diagnostics.AddError(
+			"Error reading Text Asset",
+			ParseClientError(err))
+		return
 	}
 
 	// Overwrite values with refreshed state
