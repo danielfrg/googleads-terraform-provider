@@ -3,6 +3,7 @@ package resources
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"terraform-provider-googleads/googleads/client"
 
@@ -33,17 +34,18 @@ type pMaxCampaignResource struct {
 }
 
 type pMaxCampaignResourceModel struct {
-	ResourceName    types.String `tfsdk:"resource_name"`
-	Name            types.String `tfsdk:"name"`
-	Status          types.String `tfsdk:"status"`
-	Budget          types.String `tfsdk:"budget"`
-	TargetRoas      types.Number `tfsdk:"target_roas"`
-	Headlines       types.List   `tfsdk:"headlines"`
-	LongHeadLines   types.List   `tfsdk:"long_headlines"`
-	Descriptions    types.List   `tfsdk:"descriptions"`
-	BusinessName    types.String `tfsdk:"business_name"`
-	MarketingImages types.List   `tfsdk:"marketing_images"`
-	LogoImages      types.List   `tfsdk:"logo_images"`
+	ResourceName           types.String `tfsdk:"resource_name"`
+	AssetGroupResourceName types.String `tfsdk:"asset_group_resource_name"`
+	Name                   types.String `tfsdk:"name"`
+	Status                 types.String `tfsdk:"status"`
+	Budget                 types.String `tfsdk:"budget"`
+	TargetRoas             types.Number `tfsdk:"target_roas"`
+	Headlines              types.List   `tfsdk:"headlines"`
+	LongHeadLines          types.List   `tfsdk:"long_headlines"`
+	Descriptions           types.List   `tfsdk:"descriptions"`
+	BusinessName           types.String `tfsdk:"business_name"`
+	MarketingImages        types.List   `tfsdk:"marketing_images"`
+	LogoImages             types.List   `tfsdk:"logo_images"`
 }
 
 // Metadata returns the resource type name.
@@ -56,6 +58,9 @@ func (r *pMaxCampaignResource) Schema(_ context.Context, _ resource.SchemaReques
 	resp.Schema = schema.Schema{
 		Attributes: map[string]schema.Attribute{
 			"resource_name": schema.StringAttribute{
+				Computed: true,
+			},
+			"asset_group_resource_name": schema.StringAttribute{
 				Computed: true,
 			},
 			"name": schema.StringAttribute{
@@ -118,34 +123,79 @@ func (r *pMaxCampaignResource) Create(ctx context.Context, req resource.CreateRe
 	}
 
 	// Generate API request from plan
-	client := services.NewCampaignServiceClient(&r.client.Connection)
 
 	name := plan.Name.ValueString()
 	budgetRN := plan.Budget.ValueString()
 	targetRoas, _ := plan.TargetRoas.ValueBigFloat().Float64()
 
-	op := &services.CampaignOperation{
-		Operation: &services.CampaignOperation_Create{Create: &resources.Campaign{
-			Name:                   &name,
-			CampaignBudget:         &budgetRN,
-			Status:                 enums.CampaignStatusEnum_PAUSED,
-			AdvertisingChannelType: enums.AdvertisingChannelTypeEnum_PERFORMANCE_MAX,
-			BiddingStrategyType:    enums.BiddingStrategyTypeEnum_MAXIMIZE_CONVERSION_VALUE,
-			CampaignBiddingStrategy: &resources.Campaign_MaximizeConversionValue{
-				MaximizeConversionValue: &common.MaximizeConversionValue{
-					TargetRoas: targetRoas,
+	assetGroupRN := fmt.Sprintf("customers/%s/assetGroups/%d", r.client.CustomerId, -1)
+	campaignRN := fmt.Sprintf("customers/%s/campaigns/%d", r.client.CustomerId, -2)
+
+	tflog.Info(ctx, "TEMP", map[string]any{"resource_name": assetGroupRN})
+	tflog.Info(ctx, "TEMP", map[string]any{"resource_name": campaignRN})
+
+	operations := []*services.MutateOperation{}
+
+	op_AssetGroup := &services.MutateOperation{
+		Operation: &services.MutateOperation_AssetGroupOperation{
+			AssetGroupOperation: &services.AssetGroupOperation{
+				Operation: &services.AssetGroupOperation_Create{Create: &resources.AssetGroup{
+					ResourceName: assetGroupRN,
+					Name:         name,
+					Campaign:     campaignRN,
+				},
 				},
 			},
-		}},
+		},
+	}
+	operations = append(operations, op_AssetGroup)
+
+	for _, headlineValue := range plan.Headlines.Elements() {
+		headlineRN := headlineValue.String()
+		op_LinkAsset := &services.MutateOperation{
+			Operation: &services.MutateOperation_AssetGroupAssetOperation{
+				AssetGroupAssetOperation: &services.AssetGroupAssetOperation{
+					Operation: &services.AssetGroupAssetOperation_Create{Create: &resources.AssetGroupAsset{
+						AssetGroup: assetGroupRN,
+						Asset:      strings.Trim(headlineRN, "\""),
+						FieldType:  enums.AssetFieldTypeEnum_HEADLINE,
+					}},
+				},
+			},
+		}
+
+		operations = append(operations, op_LinkAsset)
 	}
 
-	tflog.Info(ctx, "CustomerId", map[string]any{"CustomerId": r.client.CustomerId})
-	mutateRequest := &services.MutateCampaignsRequest{
-		CustomerId: r.client.CustomerId,
-		Operations: []*services.CampaignOperation{op},
+	op_Campaign := &services.MutateOperation{
+		Operation: &services.MutateOperation_CampaignOperation{
+			CampaignOperation: &services.CampaignOperation{
+				Operation: &services.CampaignOperation_Create{Create: &resources.Campaign{
+					ResourceName:           campaignRN,
+					Name:                   &name,
+					CampaignBudget:         &budgetRN,
+					Status:                 enums.CampaignStatusEnum_PAUSED,
+					AdvertisingChannelType: enums.AdvertisingChannelTypeEnum_PERFORMANCE_MAX,
+					BiddingStrategyType:    enums.BiddingStrategyTypeEnum_MAXIMIZE_CONVERSION_VALUE,
+					CampaignBiddingStrategy: &resources.Campaign_MaximizeConversionValue{
+						MaximizeConversionValue: &common.MaximizeConversionValue{
+							TargetRoas: targetRoas,
+						},
+					},
+				},
+				},
+			},
+		},
+	}
+	operations = append(operations, op_Campaign)
+
+	mutateRequest := &services.MutateGoogleAdsRequest{
+		CustomerId:       r.client.CustomerId,
+		MutateOperations: operations,
 	}
 
-	response, err := client.MutateCampaigns(r.client.Context, mutateRequest)
+	client := services.NewGoogleAdsServiceClient(&r.client.Connection)
+	response, err := client.Mutate(r.client.Context, mutateRequest)
 
 	if err != nil {
 		resp.Diagnostics.AddError(
@@ -155,10 +205,14 @@ func (r *pMaxCampaignResource) Create(ctx context.Context, req resource.CreateRe
 	}
 
 	// Map response body to schema and populate Computed attribute values
-	resource_name := response.Results[0].ResourceName
+	resource_name := response.MutateOperationResponses[0].Response.(*services.MutateOperationResponse_AssetGroupResult).AssetGroupResult.ResourceName
+
+	resource_name_2 := response.MutateOperationResponses[0].Response.(*services.MutateOperationResponse_CampaignResult).CampaignResult.ResourceName
+
 	tflog.Info(ctx, "Created PMax Campaign", map[string]any{"resource_name": resource_name})
 
-	plan.ResourceName = types.StringValue(resource_name)
+	plan.ResourceName = types.StringValue(resource_name_2)
+	plan.AssetGroupResourceName = types.StringValue(resource_name)
 
 	// Set state to fully populated data
 	diags = resp.State.Set(ctx, plan)
