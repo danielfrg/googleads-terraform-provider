@@ -143,14 +143,14 @@ func (r *imageAssetResource) Create(ctx context.Context, req resource.CreateRequ
 
 	if err != nil {
 		resp.Diagnostics.AddError(
-			"Error creating Image Asset",
+			"Error creating ImageAsset",
 			ParseClientError(err))
 		return
 	}
 
 	// Map response body to schema and populate Computed attribute values
 	resource_name := response.Results[0].ResourceName
-	tflog.Info(ctx, "Created Image Asset", map[string]any{"resource_name": resource_name})
+	tflog.Info(ctx, "Created ImageAsset", map[string]any{"resource_name": resource_name})
 
 	plan.ResourceName = types.StringValue(resource_name)
 	plan.Hash = types.StringValue(image.Hash)
@@ -187,7 +187,7 @@ func (r *imageAssetResource) Read(ctx context.Context, req resource.ReadRequest,
 	response, err := services.NewGoogleAdsServiceClient(&r.client.Connection).Search(r.client.Context, &request)
 	if err != nil {
 		resp.Diagnostics.AddError(
-			"Error reading Image Asset",
+			"Error reading ImageAsset",
 			ParseClientError(err))
 		return
 	}

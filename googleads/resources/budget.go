@@ -8,11 +8,8 @@ import (
 
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
-	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
-	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/hashicorp/terraform-plugin-log/tflog"
-	"github.com/shenzhencenter/google-ads-pb/common"
 	"github.com/shenzhencenter/google-ads-pb/enums"
 	"github.com/shenzhencenter/google-ads-pb/resources"
 	"github.com/shenzhencenter/google-ads-pb/services"
@@ -20,48 +17,57 @@ import (
 
 // Ensure the implementation satisfies the expected interfaces.
 var (
-	_ resource.Resource              = &textAssetResource{}
-	_ resource.ResourceWithConfigure = &textAssetResource{}
+	_ resource.Resource              = &budgetResource{}
+	_ resource.ResourceWithConfigure = &budgetResource{}
 )
 
-// NewTextAssetResource is a helper function to simplify the provider implementation.
-func NewTextAssetResource() resource.Resource {
-	return &textAssetResource{}
+// NewBudgetResource is a helper function to simplify the provider implementation.
+func NewBudgetResource() resource.Resource {
+	return &budgetResource{}
 }
 
-// textAssetResource is the resource implementation.
-type textAssetResource struct {
+// budgetResource is the resource implementation.
+type budgetResource struct {
 	client *client.GoogleAdsClient
 }
 
-type textAssetResourceModel struct {
-	ResourceName types.String `tfsdk:"resource_name"`
-	Text         types.String `tfsdk:"text"`
+type budgetResourceModel struct {
+	ResourceName     types.String `tfsdk:"resource_name"`
+	Name             types.String `tfsdk:"name"`
+	AmountMicros     types.Number `tfsdk:"amount_micros"`
+	DeliveryMethod   types.String `tfsdk:"delivery_method"`
+	ExplicitlyShared types.Bool   `tfsdk:"explicitly_shared"`
 }
 
 // Metadata returns the resource type name.
-func (r *textAssetResource) Metadata(_ context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
-	resp.TypeName = req.ProviderTypeName + "_text_asset"
+func (r *budgetResource) Metadata(_ context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
+	resp.TypeName = req.ProviderTypeName + "_budget"
 }
 
 // Schema defines the schema for the resource.
-func (r *textAssetResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
+func (r *budgetResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
 	resp.Schema = schema.Schema{
 		Attributes: map[string]schema.Attribute{
 			"resource_name": schema.StringAttribute{
 				Computed: true,
 			},
-			"text": schema.StringAttribute{
+			"name": schema.StringAttribute{
 				Required: true,
-				PlanModifiers: []planmodifier.String{
-					stringplanmodifier.RequiresReplace(),
-				},
+			},
+			"amount_micros": schema.NumberAttribute{
+				Required: true,
+			},
+			"delivery_method": schema.StringAttribute{
+				Required: true,
+			},
+			"explicitly_shared": schema.BoolAttribute{
+				Required: true,
 			},
 		},
 	}
 }
 
-func (r *textAssetResource) Configure(_ context.Context, req resource.ConfigureRequest, _ *resource.ConfigureResponse) {
+func (r *budgetResource) Configure(_ context.Context, req resource.ConfigureRequest, _ *resource.ConfigureResponse) {
 	if req.ProviderData == nil {
 		return
 	}
@@ -70,48 +76,50 @@ func (r *textAssetResource) Configure(_ context.Context, req resource.ConfigureR
 }
 
 // Create creates the resource and sets the initial Terraform state.
-func (r *textAssetResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
-	tflog.Info(ctx, "TextAsset: Create")
+func (r *budgetResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
+	tflog.Info(ctx, "Budget: Create")
 
 	// Retrieve values from plan
-	var plan textAssetResourceModel
+	var plan budgetResourceModel
 	diags := req.Plan.Get(ctx, &plan)
 	resp.Diagnostics.Append(diags...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
 
-	text := plan.Text.ValueString()
-
 	// Generate API request from plan
-	assetService := services.NewAssetServiceClient(&r.client.Connection)
+	adsService := services.NewCampaignBudgetServiceClient(&r.client.Connection)
 
-	assetOperation := &services.AssetOperation{
-		Operation: &services.AssetOperation_Create{Create: &resources.Asset{
-			Type: enums.AssetTypeEnum_TEXT,
-			AssetData: &resources.Asset_TextAsset{TextAsset: &common.TextAsset{
-				Text: &text,
-			}}},
-		},
+	name := plan.Name.ValueString()
+	micros, _ := plan.AmountMicros.ValueBigFloat().Int64()
+	shared := plan.ExplicitlyShared.ValueBool()
+
+	op := &services.CampaignBudgetOperation{
+		Operation: &services.CampaignBudgetOperation_Create{Create: &resources.CampaignBudget{
+			Name:             &name,
+			AmountMicros:     &micros,
+			DeliveryMethod:   enums.BudgetDeliveryMethodEnum_STANDARD,
+			ExplicitlyShared: &shared,
+		}},
 	}
 
-	mutateRequest := &services.MutateAssetsRequest{
+	mutateRequest := &services.MutateCampaignBudgetsRequest{
 		CustomerId: r.client.CustomerId,
-		Operations: []*services.AssetOperation{assetOperation},
+		Operations: []*services.CampaignBudgetOperation{op},
 	}
 
-	response, err := assetService.MutateAssets(r.client.Context, mutateRequest)
+	response, err := adsService.MutateCampaignBudgets(r.client.Context, mutateRequest)
 
 	if err != nil {
 		resp.Diagnostics.AddError(
-			"Error creating TextAsset",
+			"Error creating Budget",
 			ParseClientError(err))
 		return
 	}
 
 	// Map response body to schema and populate Computed attribute values
 	resource_name := response.Results[0].ResourceName
-	tflog.Info(ctx, "Created TextAsset", map[string]any{"resource_name": resource_name})
+	tflog.Info(ctx, "Created Budget", map[string]any{"resource_name": resource_name})
 
 	plan.ResourceName = types.StringValue(resource_name)
 
@@ -123,31 +131,31 @@ func (r *textAssetResource) Create(ctx context.Context, req resource.CreateReque
 	}
 }
 
-const GAQL_GetTextAssetsByRN = `SELECT asset.resource_name, asset.text_asset.text, asset.name FROM asset WHERE asset.resource_name = '%s'`
+const GAQL_GetBudgetsByRN = `SELECT campaign_budget.resource_name, campaign_budget.amount_micros FROM campaign_budget WHERE campaign_budget.resource_name = '%s'`
 
 // Read refreshes the Terraform state with the latest data.
-func (r *textAssetResource) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {
-	tflog.Info(ctx, "TextAsset: Read")
+func (r *budgetResource) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {
+	tflog.Info(ctx, "Budget: Read")
 
 	// Get current state
-	var state textAssetResourceModel
+	var state budgetResourceModel
 	diags := req.State.Get(ctx, &state)
 	resp.Diagnostics.Append(diags...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
 
-	tflog.Info(ctx, "TextAsset: Read", map[string]any{"resource_name": state.ResourceName.ValueString()})
+	tflog.Info(ctx, "Budget: Read", map[string]any{"resource_name": state.ResourceName.ValueString()})
 
 	// Get refreshed order value from the API
 	request := services.SearchGoogleAdsRequest{
 		CustomerId: r.client.CustomerId,
-		Query:      fmt.Sprintf(GAQL_GetTextAssetsByRN, state.ResourceName.ValueString()),
+		Query:      fmt.Sprintf(GAQL_GetBudgetsByRN, state.ResourceName.ValueString()),
 	}
 	response, err := services.NewGoogleAdsServiceClient(&r.client.Connection).Search(r.client.Context, &request)
 	if err != nil {
 		resp.Diagnostics.AddError(
-			"Error reading TextAsset",
+			"Error reading Budget",
 			ParseClientError(err))
 		return
 	}
@@ -164,7 +172,7 @@ func (r *textAssetResource) Read(ctx context.Context, req resource.ReadRequest, 
 	}
 	for _, resource := range response.Results {
 		state.ResourceName = types.StringValue(resource.Asset.GetResourceName())
-		state.Text = types.StringValue(*resource.Asset.GetTextAsset().Text)
+		state.AmountMicros = types.NumberValue(ToBigFloat(*resource.CampaignBudget.AmountMicros))
 		break
 	}
 
@@ -177,8 +185,8 @@ func (r *textAssetResource) Read(ctx context.Context, req resource.ReadRequest, 
 }
 
 // Update updates the resource and sets the updated Terraform state on success.
-func (r *textAssetResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
-	tflog.Info(ctx, "TextAsset: Update")
+func (r *budgetResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
+	tflog.Info(ctx, "Budget: Update")
 	tflog.Info(ctx, "Assets are immutable and all fields force a new resource")
 
 	resp.Diagnostics.AddError(
@@ -187,7 +195,7 @@ func (r *textAssetResource) Update(ctx context.Context, req resource.UpdateReque
 }
 
 // Delete deletes the resource and removes the Terraform state on success.
-func (r *textAssetResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
-	tflog.Info(ctx, "TextAsset: Delete")
+func (r *budgetResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
+	tflog.Info(ctx, "Budget: Delete")
 	tflog.Info(ctx, "Assets are immutable, acting as if delete was successful")
 }
