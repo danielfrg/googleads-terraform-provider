@@ -2,6 +2,7 @@ package resources
 
 import (
 	"context"
+	"fmt"
 
 	"terraform-provider-googleads/googleads/client"
 
@@ -9,6 +10,10 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/hashicorp/terraform-plugin-log/tflog"
+	"github.com/shenzhencenter/google-ads-pb/common"
+	"github.com/shenzhencenter/google-ads-pb/enums"
+	"github.com/shenzhencenter/google-ads-pb/resources"
+	"github.com/shenzhencenter/google-ads-pb/services"
 )
 
 // Ensure the implementation satisfies the expected interfaces.
@@ -28,12 +33,17 @@ type pMaxCampaignResource struct {
 }
 
 type pMaxCampaignResourceModel struct {
+	ResourceName    types.String `tfsdk:"resource_name"`
+	Name            types.String `tfsdk:"name"`
+	Status          types.String `tfsdk:"status"`
+	Budget          types.String `tfsdk:"budget"`
+	TargetRoas      types.Number `tfsdk:"target_roas"`
 	Headlines       types.List   `tfsdk:"headlines"`
-	LongHeadLines   types.String `tfsdk:"long_headlines"`
+	LongHeadLines   types.List   `tfsdk:"long_headlines"`
 	Descriptions    types.List   `tfsdk:"descriptions"`
 	BusinessName    types.String `tfsdk:"business_name"`
-	MarketingImages types.Object `tfsdk:"marketing_images"`
-	LogoImages      types.Object `tfsdk:"logo_images"`
+	MarketingImages types.List   `tfsdk:"marketing_images"`
+	LogoImages      types.List   `tfsdk:"logo_images"`
 }
 
 // Metadata returns the resource type name.
@@ -48,8 +58,17 @@ func (r *pMaxCampaignResource) Schema(_ context.Context, _ resource.SchemaReques
 			"resource_name": schema.StringAttribute{
 				Computed: true,
 			},
-			"asset_group_resource_name": schema.StringAttribute{
-				Computed: true,
+			"name": schema.StringAttribute{
+				Required: true,
+			},
+			"status": schema.StringAttribute{
+				Required: true,
+			},
+			"budget": schema.StringAttribute{
+				Required: true,
+			},
+			"target_roas": schema.NumberAttribute{
+				Required: true,
 			},
 			"headlines": schema.ListAttribute{
 				Required:    true,
@@ -91,8 +110,58 @@ func (r *pMaxCampaignResource) Create(ctx context.Context, req resource.CreateRe
 	tflog.Info(ctx, "PMaxCampaign: Create")
 
 	// Retrieve values from plan
-	var plan textAssetResourceModel
+	var plan pMaxCampaignResourceModel
 	diags := req.Plan.Get(ctx, &plan)
+	resp.Diagnostics.Append(diags...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	// Generate API request from plan
+	client := services.NewCampaignServiceClient(&r.client.Connection)
+
+	name := plan.Name.ValueString()
+	budgetRN := plan.Budget.ValueString()
+	targetRoas, _ := plan.TargetRoas.ValueBigFloat().Float64()
+
+	op := &services.CampaignOperation{
+		Operation: &services.CampaignOperation_Create{Create: &resources.Campaign{
+			Name:                   &name,
+			CampaignBudget:         &budgetRN,
+			Status:                 enums.CampaignStatusEnum_PAUSED,
+			AdvertisingChannelType: enums.AdvertisingChannelTypeEnum_PERFORMANCE_MAX,
+			BiddingStrategyType:    enums.BiddingStrategyTypeEnum_MAXIMIZE_CONVERSION_VALUE,
+			CampaignBiddingStrategy: &resources.Campaign_MaximizeConversionValue{
+				MaximizeConversionValue: &common.MaximizeConversionValue{
+					TargetRoas: targetRoas,
+				},
+			},
+		}},
+	}
+
+	tflog.Info(ctx, "CustomerId", map[string]any{"CustomerId": r.client.CustomerId})
+	mutateRequest := &services.MutateCampaignsRequest{
+		CustomerId: r.client.CustomerId,
+		Operations: []*services.CampaignOperation{op},
+	}
+
+	response, err := client.MutateCampaigns(r.client.Context, mutateRequest)
+
+	if err != nil {
+		resp.Diagnostics.AddError(
+			"Error creating PMax Campaign",
+			ParseClientError(err))
+		return
+	}
+
+	// Map response body to schema and populate Computed attribute values
+	resource_name := response.Results[0].ResourceName
+	tflog.Info(ctx, "Created PMax Campaign", map[string]any{"resource_name": resource_name})
+
+	plan.ResourceName = types.StringValue(resource_name)
+
+	// Set state to fully populated data
+	diags = resp.State.Set(ctx, plan)
 	resp.Diagnostics.Append(diags...)
 	if resp.Diagnostics.HasError() {
 		return
@@ -100,12 +169,54 @@ func (r *pMaxCampaignResource) Create(ctx context.Context, req resource.CreateRe
 
 }
 
-const GAQL_GetPMaxCampaignByRN = `SELECT campaign.resource_name FROM campaign WHERE asset.resource_name = '%s'`
+const GAQL_GetPMaxCampaignByRN = `SELECT campaign.resource_name FROM campaign WHERE campaign.resource_name = '%s'`
 
 // Read refreshes the Terraform state with the latest data.
 func (r *pMaxCampaignResource) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {
-	tflog.Info(ctx, "PMaxCampaign: Read")
+	// Get current state
+	var state pMaxCampaignResourceModel
+	diags := req.State.Get(ctx, &state)
+	resp.Diagnostics.Append(diags...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
 
+	tflog.Info(ctx, "PMaxCampaign: Read", map[string]any{"resource_name": state.ResourceName.ValueString()})
+
+	// Get refreshed order value from the API
+	request := services.SearchGoogleAdsRequest{
+		CustomerId: r.client.CustomerId,
+		Query:      fmt.Sprintf(GAQL_GetPMaxCampaignByRN, state.ResourceName.ValueString()),
+	}
+	response, err := services.NewGoogleAdsServiceClient(&r.client.Connection).Search(r.client.Context, &request)
+	if err != nil {
+		resp.Diagnostics.AddError(
+			"Error reading Budget",
+			ParseClientError(err))
+		return
+	}
+
+	// Overwrite values with refreshed state
+	if len(response.Results) == 0 {
+		// Treat empty response as resource not found
+		resp.State.RemoveResource(ctx)
+		return
+	}
+	if len(response.Results) > 1 {
+		// TODO: Handle multiple results
+		panic("Multiple results returned for resource name: " + state.ResourceName.ValueString())
+	}
+	for _, resource := range response.Results {
+		state.ResourceName = types.StringValue(resource.Campaign.ResourceName)
+		break
+	}
+
+	// Set refreshed state
+	diags = resp.State.Set(ctx, &state)
+	resp.Diagnostics.Append(diags...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
 }
 
 // Update updates the resource and sets the updated Terraform state on success.
@@ -116,4 +227,40 @@ func (r *pMaxCampaignResource) Update(ctx context.Context, req resource.UpdateRe
 // Delete deletes the resource and removes the Terraform state on success.
 func (r *pMaxCampaignResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
 	tflog.Info(ctx, "PMaxCampaign: Delete")
+
+	// Get current state
+	var state pMaxCampaignResourceModel
+	diags := req.State.Get(ctx, &state)
+	resp.Diagnostics.Append(diags...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	// Generate API request from plan
+	client := services.NewCampaignServiceClient(&r.client.Connection)
+
+	resourceName := state.ResourceName.ValueString()
+
+	op := &services.CampaignOperation{
+		Operation: &services.CampaignOperation_Remove{Remove: resourceName},
+	}
+
+	tflog.Info(ctx, "CustomerId", map[string]any{"CustomerId": r.client.CustomerId})
+	mutateRequest := &services.MutateCampaignsRequest{
+		CustomerId: r.client.CustomerId,
+		Operations: []*services.CampaignOperation{op},
+	}
+
+	response, err := client.MutateCampaigns(r.client.Context, mutateRequest)
+
+	if err != nil {
+		resp.Diagnostics.AddError(
+			"Error removing Campaign",
+			ParseClientError(err))
+		return
+	}
+
+	resource_name := response.Results[0].ResourceName
+	tflog.Info(ctx, "Removed PMax Campaign", map[string]any{"resource_name": resource_name})
+
 }

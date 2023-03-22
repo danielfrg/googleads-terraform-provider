@@ -88,7 +88,7 @@ func (r *budgetResource) Create(ctx context.Context, req resource.CreateRequest,
 	}
 
 	// Generate API request from plan
-	adsService := services.NewCampaignBudgetServiceClient(&r.client.Connection)
+	client := services.NewCampaignBudgetServiceClient(&r.client.Connection)
 
 	name := plan.Name.ValueString()
 	micros, _ := plan.AmountMicros.ValueBigFloat().Int64()
@@ -108,7 +108,7 @@ func (r *budgetResource) Create(ctx context.Context, req resource.CreateRequest,
 		Operations: []*services.CampaignBudgetOperation{op},
 	}
 
-	response, err := adsService.MutateCampaignBudgets(r.client.Context, mutateRequest)
+	response, err := client.MutateCampaignBudgets(r.client.Context, mutateRequest)
 
 	if err != nil {
 		resp.Diagnostics.AddError(
@@ -171,7 +171,7 @@ func (r *budgetResource) Read(ctx context.Context, req resource.ReadRequest, res
 		panic("Multiple results returned for resource name: " + state.ResourceName.ValueString())
 	}
 	for _, resource := range response.Results {
-		state.ResourceName = types.StringValue(resource.Asset.GetResourceName())
+		state.ResourceName = types.StringValue(resource.CampaignBudget.ResourceName)
 		state.AmountMicros = types.NumberValue(ToBigFloat(*resource.CampaignBudget.AmountMicros))
 		break
 	}

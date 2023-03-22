@@ -84,7 +84,7 @@ func (r *textAssetResource) Create(ctx context.Context, req resource.CreateReque
 	text := plan.Text.ValueString()
 
 	// Generate API request from plan
-	assetService := services.NewAssetServiceClient(&r.client.Connection)
+	client := services.NewAssetServiceClient(&r.client.Connection)
 
 	assetOperation := &services.AssetOperation{
 		Operation: &services.AssetOperation_Create{Create: &resources.Asset{
@@ -100,7 +100,7 @@ func (r *textAssetResource) Create(ctx context.Context, req resource.CreateReque
 		Operations: []*services.AssetOperation{assetOperation},
 	}
 
-	response, err := assetService.MutateAssets(r.client.Context, mutateRequest)
+	response, err := client.MutateAssets(r.client.Context, mutateRequest)
 
 	if err != nil {
 		resp.Diagnostics.AddError(

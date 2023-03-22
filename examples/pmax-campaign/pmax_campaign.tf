@@ -1,28 +1,30 @@
-# resource "googleads_pmax_campaign" "my_campaign" {
-#   name = "My PMax Campaign from TF"
+resource "googleads_pmax_campaign" "my_campaign" {
+  name   = "My PMax Campaign from TF"
+  status = "PAUSED"
 
-#   headlines = [
-#     googleads_text_asset.headline1.resource_name,
-#     googleads_text_asset.headline2.resource_name,
-#     googleads_text_asset.headline3.resource_name,
-#   ]
+  budget      = googleads_budget.my_budget.resource_name
+  target_roas = 3.5
 
-#   long_headlines = [googleads_text_asset.long_headline1.resource_name]
+  # Required Text Assets
+  headlines = [
+    googleads_text_asset.headline1.resource_name,
+    googleads_text_asset.headline2.resource_name,
+    googleads_text_asset.headline3.resource_name,
+  ]
+  long_headlines = [googleads_text_asset.long_headline1.resource_name]
+  descriptions = [
+    googleads_text_asset.description1.resource_name,
+  ]
+  business_name = googleads_text_asset.business_name.resource_name
 
-#   descriptions = [
-#     googleads_text_asset.description1.resource_name,
-#   ]
-
-#   business_name = googleads_text_asset.business_name.resource_name
-
-#   marketing_images = [
-#     googleads_image_asset.marketing_image.resource_name
-#   ]
-
-#   logo_images = [
-#     googleads_image_asset.logo_image.resource_name
-#   ]
-# }
+  # Required Image Assets
+  marketing_images = [
+    googleads_image_asset.marketing_image.resource_name
+  ]
+  logo_images = [
+    googleads_image_asset.logo_image.resource_name
+  ]
+}
 
 resource "googleads_budget" "my_budget" {
   name              = "My PMax Campaign Budget"

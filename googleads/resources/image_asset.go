@@ -112,7 +112,7 @@ func (r *imageAssetResource) Create(ctx context.Context, req resource.CreateRequ
 	}
 
 	// Generate API request from plan
-	assetService := services.NewAssetServiceClient(&r.client.Connection)
+	client := services.NewAssetServiceClient(&r.client.Connection)
 
 	assetName := plan.Name.ValueString()
 	mimeType := enums.MimeTypeEnum_IMAGE_JPEG
@@ -139,7 +139,7 @@ func (r *imageAssetResource) Create(ctx context.Context, req resource.CreateRequ
 		Operations: []*services.AssetOperation{assetOperation},
 	}
 
-	response, err := assetService.MutateAssets(r.client.Context, mutateRequest)
+	response, err := client.MutateAssets(r.client.Context, mutateRequest)
 
 	if err != nil {
 		resp.Diagnostics.AddError(

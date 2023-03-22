@@ -141,5 +141,6 @@ func (p *googleadsProvider) Resources(_ context.Context) []func() resource.Resou
 		resources.NewImageAssetResource,
 		resources.NewTextAssetResource,
 		resources.NewBudgetResource,
+		resources.NewPMaxCampaignResource,
 	}
 }
